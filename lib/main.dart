@@ -29,7 +29,7 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(title: 'Raspberry Pi BLE Demo'),
     );
   }
 }
@@ -57,6 +57,7 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _foundDeviceWaitingToConnect = false;
   bool _scanStarted = false;
   bool _connected = false;
+  String _serviceRead = '';
   late DiscoveredDevice _ubiqueDevice;
   final flutterReactiveBle = FlutterReactiveBle();
   late StreamSubscription<DiscoveredDevice> _scanStream;
@@ -98,12 +99,12 @@ class _MyHomePageState extends State<MyHomePage> {
     // We're done scanning, we can cancel it
     _scanStream.cancel();
     // Let's listen to our connection so we can make updates on a state change
-    Stream<ConnectionStateUpdate> _currentConnectionStream = flutterReactiveBle
+    Stream<ConnectionStateUpdate> currentConnectionStream = flutterReactiveBle
         .connectToAdvertisingDevice(
             id: _ubiqueDevice.id,
             prescanDuration: const Duration(seconds: 1),
             withServices: [serviceUuid, characteristicUuid]);
-    _currentConnectionStream.listen((event) {
+    currentConnectionStream.listen((event) {
       switch (event.connectionState) {
         // We're connected and good to go!
         case DeviceConnectionState.connected:
@@ -112,6 +113,14 @@ class _MyHomePageState extends State<MyHomePage> {
                 serviceId: serviceUuid,
                 characteristicId: characteristicUuid,
                 deviceId: event.deviceId);
+            flutterReactiveBle
+                .subscribeToCharacteristic(_rxCharacteristic)
+                .listen((data) {
+              print(String.fromCharCodes(data));
+              setState(() {
+                _serviceRead = String.fromCharCodes(data);
+              });
+            }, onError: (err) {});
             setState(() {
               _foundDeviceWaitingToConnect = false;
               _connected = true;
@@ -181,7 +190,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 style: ElevatedButton.styleFrom(
                     primary: Colors.grey, onPrimary: Colors.white),
                 onPressed: () {},
-                child: const Icon(Icons.celebration_rounded))
+                child: const Icon(Icons.celebration_rounded)),
       ],
       appBar: AppBar(
         // Here we take the value from the MyHomePage object that was created by
@@ -208,21 +217,10 @@ class _MyHomePageState extends State<MyHomePage> {
           // horizontal).
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
+            _connected ? Text(_serviceRead) : const Text('Not Connected'),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
