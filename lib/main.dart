@@ -1,4 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:location_permissions/location_permissions.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,13 +29,13 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({Key? key, required this.title}) : super(key: key);
+  MyHomePage({Key? key, required this.title}) : super(key: key);
 
   // This widget is the home page of your application. It is stateful, meaning
   // that it has a State object (defined below) that contains fields that affect
@@ -49,6 +54,79 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _counter = 0;
+  bool _foundDeviceWaitingToConnect = false;
+  bool _scanStarted = false;
+  bool _connected = false;
+  late DiscoveredDevice _ubiqueDevice;
+  final flutterReactiveBle = FlutterReactiveBle();
+  late StreamSubscription<DiscoveredDevice> _scanStream;
+  late QualifiedCharacteristic _rxCharacteristic;
+  final Uuid serviceUuid = Uuid.parse("00000001-710e-4a5b-8d75-3e5b444bc3cf");
+  final Uuid characteristicUuid =
+      Uuid.parse("00000002-710e-4a5b-8d75-3e5b444bc3cf");
+
+  void _startScan() async {
+    // Platform permissions handling stuff
+    bool permGranted = false;
+    setState(() {
+      _scanStarted = true;
+    });
+    PermissionStatus permission;
+    if (Platform.isAndroid) {
+      permission = await LocationPermissions().requestPermissions();
+      if (permission == PermissionStatus.granted) permGranted = true;
+    } else if (Platform.isIOS) {
+      permGranted = true;
+    }
+    // Main scanning logic happens here ⤵️
+    if (permGranted) {
+      _scanStream =
+          flutterReactiveBle.scanForDevices(withServices: []).listen((device) {
+        // Change this string to what you defined in Zephyr
+        if (device.name == 'Thermometer') {
+          print('Connected!');
+          setState(() {
+            _ubiqueDevice = device;
+            _foundDeviceWaitingToConnect = true;
+          });
+        }
+      });
+    }
+  }
+
+  void _connectToDevice() {
+    // We're done scanning, we can cancel it
+    _scanStream.cancel();
+    // Let's listen to our connection so we can make updates on a state change
+    Stream<ConnectionStateUpdate> _currentConnectionStream = flutterReactiveBle
+        .connectToAdvertisingDevice(
+            id: _ubiqueDevice.id,
+            prescanDuration: const Duration(seconds: 1),
+            withServices: [serviceUuid, characteristicUuid]);
+    _currentConnectionStream.listen((event) {
+      switch (event.connectionState) {
+        // We're connected and good to go!
+        case DeviceConnectionState.connected:
+          {
+            _rxCharacteristic = QualifiedCharacteristic(
+                serviceId: serviceUuid,
+                characteristicId: characteristicUuid,
+                deviceId: event.deviceId);
+            setState(() {
+              _foundDeviceWaitingToConnect = false;
+              _connected = true;
+            });
+            break;
+          }
+        // Can add various state state updates on disconnect
+        case DeviceConnectionState.disconnected:
+          {
+            break;
+          }
+        default:
+      }
+    });
+  }
 
   void _incrementCounter() {
     setState(() {
@@ -70,6 +148,41 @@ class _MyHomePageState extends State<MyHomePage> {
     // fast, so that you can just rebuild anything that needs updating rather
     // than having to individually change instances of widgets.
     return Scaffold(
+      persistentFooterButtons: [
+        _scanStarted
+            ? ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.grey, onPrimary: Colors.white),
+                onPressed: () {},
+                child: const Icon(Icons.search))
+            : ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.blue, onPrimary: Colors.white),
+                onPressed: _startScan,
+                child: const Icon(Icons.search)),
+        _foundDeviceWaitingToConnect
+            ? ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.blue, onPrimary: Colors.white),
+                onPressed: _connectToDevice,
+                child: const Icon(Icons.bluetooth))
+            : ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.grey, onPrimary: Colors.white),
+                onPressed: () {},
+                child: const Icon(Icons.bluetooth)),
+        _connected
+            ? ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.blue, onPrimary: Colors.white),
+                onPressed: () {},
+                child: const Icon(Icons.celebration_rounded))
+            : ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    primary: Colors.grey, onPrimary: Colors.white),
+                onPressed: () {},
+                child: const Icon(Icons.celebration_rounded))
+      ],
       appBar: AppBar(
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
